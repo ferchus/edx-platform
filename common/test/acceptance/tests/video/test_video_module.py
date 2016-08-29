@@ -526,18 +526,6 @@ class YouTubeVideoTest(VideoBaseTest):
         # check if we can download transcript in "srt" format that has text "00:00:00,260"
         self.assertTrue(self.video.downloaded_transcript_contains_text('srt', '00:00:00,260'))
 
-        # select the transcript format "txt"
-        self.assertTrue(self.video.select_transcript_format('txt'))
-
-        # check if we can download transcript in "txt" format that has text "Welcome to edX."
-        self.assertTrue(self.video.downloaded_transcript_contains_text('txt', 'Welcome to edX.'))
-
-        # open vertical containing video "B"
-        self.course_nav.go_to_vertical('Test Vertical-1')
-
-        # check if we can download transcript in "txt" format that has text "Equal transcripts"
-        self.assertTrue(self.video.downloaded_transcript_contains_text('txt', 'Equal transcripts'))
-
         # open vertical containing video "C"
         self.course_nav.go_to_vertical('Test Vertical-2')
 
