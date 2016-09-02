@@ -39,9 +39,11 @@ class @Problem
     @hintButton.click @hint_button
     @resetButton = @$('.action .reset')
     @resetButton.click @reset
-    @showButton = @$('.action .show')
+    @showButton = @$('div.action button.show')
     @showButton.click @show
-    @saveButton = @$('.action .save')
+    @saveButton = @$('.problem .problem-action-buttons-wrapper .save')
+    @saveNotificationArea = @$('.notification.warning.notification-save')
+    @saveButtonLabel = @$('.problem .problem-action-buttons-wrapper .save .save-label')
     @saveButton.click @save
 
     # Accessibility helper for sighted keyboard users to show <clarification> tooltips on focus:
@@ -345,6 +347,7 @@ class @Problem
         Logger.log 'problem_graded', [@answers, response.contents], @id
 
     $.ajaxWithPrefix("#{@url}/problem_check", settings)
+    @enableSaveButton false, false
 
   submit: =>
     if not @submit_save_waitfor(@submit_internal)
@@ -443,14 +446,37 @@ class @Problem
     if not @submit_save_waitfor(@save_internal)
       @disableAllButtonsWhileRunning @save_internal, false
 
+  focus_on_save_notification: =>
+    if @saveNotificationArea.length > 0
+      @saveNotificationArea.focus()
+
   save_internal: =>
     Logger.log 'problem_save', @answers
     $.postWithPrefix "#{@url}/problem_save", @answers, (response) =>
       saveMessage = response.msg
       if response.success
         @el.trigger('contentChanged', [@id, response.html])
-      @gentle_alert saveMessage
-      @updateProgress response
+        @render(response.html, @focus_on_save_notification)
+        @updateProgress response
+      else
+        @gentle_alert saveMessage
+
+  enableSaveButton: (enable, changeText = false) =>
+    # Used to disable save button if there is no change to the submission and enable if there is.
+    # params:
+    #   'enable' is a boolean to determine enabling/disabling of check button.
+    #   'changeText' is a boolean to determine if there is need to change the
+    #    text of save button as well.
+    if enable
+      @saveButton.removeClass 'is-disabled'
+      @saveButton.removeAttr 'disabled'
+      if changeText
+        @saveButtonLabel.text('Save')
+    else
+      @saveButton.addClass 'is-disabled'
+      @saveButton.attr({'disabled': 'disabled'})
+      if changeText
+        @saveButtonLabel.text('Saved')
 
   refreshMath: (event, element) =>
     element = event.target unless element
@@ -484,7 +510,7 @@ class @Problem
       element.CodeMirror.save() if element.CodeMirror.save
     @answers = @inputs.serialize()
 
-  submitAnswersAndSubmitButton: (bind=false) =>
+  submitAnswersAndSubmitButton: (bind=false, data_changed=false) =>
     # Used to check available answers and if something is checked (or the answer is set in some textbox)
     # "Submit" button becomes enabled. Otherwise it is disabled by default.
     # params:
@@ -494,6 +520,7 @@ class @Problem
 
     at_least_one_text_input_found = false
     one_text_input_filled = false
+    debugger
     @el.find("input:text").each (i, text_field) =>
       if $(text_field).is(':visible')
         at_least_one_text_input_found = true
@@ -501,7 +528,7 @@ class @Problem
           one_text_input_filled = true
         if bind
           $(text_field).on 'input', (e) =>
-            @submitAnswersAndSubmitButton()
+            @submitAnswersAndSubmitButton false, true
             return
           return
     if at_least_one_text_input_found and not one_text_input_filled
@@ -514,7 +541,7 @@ class @Problem
           checked = true
         if bind
           $(checkbox_or_radio).on 'click', (e) =>
-            @submitAnswersAndSubmitButton()
+            @submitAnswersAndSubmitButton false, true
             return
           return
       if not checked
@@ -527,12 +554,14 @@ class @Problem
         answered = false
       if bind
         $(select_field).on 'change', (e) =>
-          @submitAnswersAndSubmitButton()
+          @submitAnswersAndSubmitButton false, true
           return
         return
 
     if answered
       @enableSubmitButton true
+      if data_changed
+        @saveNotificationArea.remove()
     else
       @enableSubmitButton false, false
 
@@ -770,6 +799,10 @@ class @Problem
     operationCallback().always =>
       @enableAllButtons true, isFromCheckOperation
 
+  # Called by disableAllButtonsWhileRunning to automatically disable all buttons while check,reset,or save internal are running
+  # Then enable all the buttons again after it is done.
+  # We don't want the save button to automatically be enabled after the action has completed. We do want it to be automatically disabled, though
+  # (if a user tries to press save while the problem is submitting, maybe?).
   enableAllButtons: (enable, isFromCheckOperation) =>
     # Used to enable/disable all buttons in problem.
     # params:
@@ -782,12 +815,14 @@ class @Problem
         .add(@saveButton)
         .add(@hintButton)
         .add(@showButton)
+        .removeClass('is-disabled')
         .removeAttr 'disabled'
     else
       @resetButton
         .add(@saveButton)
         .add(@hintButton)
         .add(@showButton)
+        .addClass('is-disabled')
         .attr({'disabled': 'disabled'})
 
     @enableSubmitButton enable, isFromCheckOperation
