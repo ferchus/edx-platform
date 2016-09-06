@@ -173,10 +173,10 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
             "usage_key": self.usage_key,
             "course_version": "deadbeef",
             "subtree_edited_timestamp": "2016-08-01 18:53:24.354741",
-            "earned_all": 6,
-            "possible_all": 12,
-            "earned_graded": 6,
-            "possible_graded": 8,
+            "earned_all": 6.0,
+            "possible_all": 12.0,
+            "earned_graded": 6.0,
+            "possible_graded": 8.0,
             "visible_blocks": [self.record_a, self.record_b],
         }
 
@@ -212,26 +212,38 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         with self.assertRaises(PersistentSubsectionGrade.DoesNotExist):
             PersistentSubsectionGrade.update_grade(**self.params)
         PersistentSubsectionGrade.objects.create(**self.params)
-        self.params['earned_all'] = 12
-        self.params['earned_graded'] = 8
-        PersistentSubsectionGrade.update_grade(**self.params)
-        read_grade = PersistentSubsectionGrade.read_grade(
-            user_id=self.params["user_id"],
-            usage_key=self.params["usage_key"],
-        )
-        self.assertEqual(read_grade.earned_all, 12)
-        self.assertEqual(read_grade.earned_graded, 8)
+        self.params['earned_all'] = 12.0
+        self.params['earned_graded'] = 8.0
 
-    @ddt.data(True, False)
-    def test_save(self, already_created):
-        if already_created:
-            PersistentSubsectionGrade.objects.create(**self.params)
+        with patch('lms.djangoapps.grades.models.log') as log_mock:
+            PersistentSubsectionGrade.update_grade(**self.params)
+            read_grade = PersistentSubsectionGrade.read_grade(
+                user_id=self.params["user_id"],
+                usage_key=self.params["usage_key"],
+            )
+            log_mock.info.assert_called_with(
+                u"Persistent Grades: Grade model updated: {0}".format(read_grade)
+            )
+
+        self.assertEqual(read_grade.earned_all, 12.0)
+        self.assertEqual(read_grade.earned_graded, 8.0)
+
+    def test_save(self):
         module_prefix = "lms.djangoapps.grades.models.PersistentSubsectionGrade."
         with patch(
-            module_prefix + "objects.get_or_create",
-            wraps=PersistentSubsectionGrade.objects.get_or_create
-        ) as mock_get_or_create:
-            with patch(module_prefix + "update") as mock_update:
-                PersistentSubsectionGrade.save_grade(**self.params)
-                self.assertTrue(mock_get_or_create.called)
-                self.assertEqual(mock_update.called, already_created)
+            module_prefix + "objects.update_or_create",
+            wraps=PersistentSubsectionGrade.objects.update_or_create
+        ) as mock_update_or_create:
+            PersistentSubsectionGrade.save_grade(**self.params)
+            self.assertTrue(mock_update_or_create.called)
+
+    def test_logging_for_save(self):
+        with patch('lms.djangoapps.grades.models.log') as log_mock:
+            PersistentSubsectionGrade.save_grade(**self.params)
+            read_grade = PersistentSubsectionGrade.read_grade(
+                user_id=self.params["user_id"],
+                usage_key=self.params["usage_key"],
+            )
+            log_mock.info.assert_called_with(
+                u"Persistent Grades: Grade model saved: {0}".format(read_grade)
+            )
