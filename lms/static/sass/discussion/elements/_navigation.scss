@@ -95,7 +95,7 @@
     li {
 
         .forum-nav-browse-title {
-            padding-left: $baseline;
+            @include padding-left($baseline);
         }
     }
 }
@@ -150,8 +150,8 @@
 // Thread list
 // -----------
 .forum-nav-thread-list {
+    @include padding-left(0);
     margin: 0;
-    padding-left: 0;
     overflow-y: scroll;
     list-style: none;
 
@@ -261,9 +261,9 @@
 }
 
 .forum-nav-thread-title {
+    @include margin-left(0);
     font-size: $forum-base-font-size;
     display: block;
-    margin-left: 0;
 }
 
 %forum-nav-thread-wrapper-2-content {

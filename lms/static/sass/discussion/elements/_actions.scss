@@ -28,7 +28,7 @@
           }
 
           .action-label {
-            padding-right: 0px;
+            @include padding-right(0);
           }
 
           &:hover {

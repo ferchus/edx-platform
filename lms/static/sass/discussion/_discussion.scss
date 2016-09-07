@@ -404,9 +404,10 @@ section.discussion-pagination {
 
     ol {
       li {
+        @include padding-right($baseline/2);
         list-style: none;
         display: inline-block;
-        padding-right: 0.5em;
+
         &.current-page span {
           display: inline-block;
           height: 35px;
