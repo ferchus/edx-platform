@@ -27,8 +27,8 @@
                 this.$el.html(_.template($('#topic-template').html())(context));
                 if (this.getCurrentTopicId()) {
                     this.setTopic(this.$('option', '.post-topic').filter(
-                        '[data-discussion-id="' + this.getCurrentTopicId() + '"]')
-                    );
+                        '[data-discussion-id="' + this.getCurrentTopicId() + '"]'
+                    ));
                 } else {
                     this.setTopic(this.$('option', '.post-topic').first());
                 }
@@ -60,17 +60,16 @@
             },
 
             handleTopicEvent: function(event) {
-                this.setTopic($(event.target));
+                this.setTopic($('option:selected', event.target));
                 return this;
             },
 
             setTopic: function($target) {
-                var $option = $('option:selected', $target);
-
-                if ($option.data('discussion-id')) {
-                    this.topicText = this.getFullTopicName($option);
-                    this.currentTopicId = $option.data('discussion-id');
-                    this.trigger('thread:topic_change', $option);
+                if ($target.data('discussion-id')) {
+                    this.topicText = this.getFullTopicName($target);
+                    this.currentTopicId = $target.data('discussion-id');
+                    $target.prop('selected', true);
+                    this.trigger('thread:topic_change', $target);
                 }
                 return this;
             },
