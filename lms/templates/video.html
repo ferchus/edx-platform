@@ -42,7 +42,7 @@ from openedx.core.djangolib.js_utils import js_escaped_string
     
     % if download_video_link or track or handout or branding_info:
     <h3 class="hd hd-4 downloads-heading sr" id="video-download-transcripts_${id}">${_('Downloads and transcripts')}</h3>
-    <div class="wrapper-downloads" role="region" aria-labelleby="video-download-transcripts_${id}">
+    <div class="wrapper-downloads" role="region" aria-labelledby="video-download-transcripts_${id}">
         % if download_video_link:
         <div class="wrapper-download-video">
             <h4 class="hd hd-5">${_('Video')}</h4>
