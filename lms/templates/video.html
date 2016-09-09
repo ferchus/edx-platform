@@ -53,9 +53,9 @@ from openedx.core.djangolib.js_utils import js_escaped_string
         % endif
         % if track:
         <div class="wrapper-download-transcripts">
-            <h4 class="hd hd-5" id="video-transcripts_${id}">${_('Transcripts')}</h4>
+            <h4 class="hd hd-5">${_('Transcripts')}</h4>
             % if transcript_download_format:
-            <ul class="list-download-transcripts" aria-describedby="video-transcripts_${id}">
+            <ul class="list-download-transcripts">
                 % for item in transcript_download_formats_list:
                     <li class="transcript-option">
                         <% dname = item['display_name'] %>
