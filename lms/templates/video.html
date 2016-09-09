@@ -41,8 +41,8 @@ from openedx.core.djangolib.js_utils import js_escaped_string
     <div class="focus_grabber last"></div>
     
     % if download_video_link or track or handout or branding_info:
-    <h3 class="hd hd-4 downloads-heading sr" id="video-download-transcripts">${_('Downloads and transcripts')}</h3>
-    <div class="wrapper-downloads" role="region" aria-labelleby="video-download-transcripts">
+    <h3 class="hd hd-4 downloads-heading sr" id="video-download-transcripts_${id}">${_('Downloads and transcripts')}</h3>
+    <div class="wrapper-downloads" role="region" aria-labelleby="video-download-transcripts_${id}">
         % if download_video_link:
         <div class="wrapper-download-video">
             <h4 class="hd hd-5">${_('Video')}</h4>
@@ -53,9 +53,9 @@ from openedx.core.djangolib.js_utils import js_escaped_string
         % endif
         % if track:
         <div class="wrapper-download-transcripts">
-            <h4 class="hd hd-5" id="video-transcripts">${_('Transcripts')}</h4>
+            <h4 class="hd hd-5" id="video-transcripts_${id}">${_('Transcripts')}</h4>
             % if transcript_download_format:
-            <ul class="list-download-transcripts" aria-describedby="video-transcripts">
+            <ul class="list-download-transcripts" aria-describedby="video-transcripts_${id}">
                 % for item in transcript_download_formats_list:
                     <li class="transcript-option">
                         <% dname = item['display_name'] %>
