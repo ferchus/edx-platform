@@ -117,17 +117,13 @@ class CourseGrade(object):
         """
         Computes the grade for the given student and course.
         """
-        subsection_grade_factory = SubsectionGradeFactory(self.student)
+        subsection_grade_factory = SubsectionGradeFactory(self.student, self.course, self.course_structure)
         for chapter_key in self.course_structure.get_children(self.course.location):
             chapter = self.course_structure[chapter_key]
             subsection_grades = []
             for subsection_key in self.course_structure.get_children(chapter_key):
                 subsection_grades.append(
-                    subsection_grade_factory.create(
-                        self.course_structure[subsection_key],
-                        self.course_structure,
-                        self.course,
-                    )
+                    subsection_grade_factory.create(self.course_structure[subsection_key])
                 )
 
             self.chapter_grades.append({

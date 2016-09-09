@@ -60,8 +60,8 @@ class GradeTestBase(SharedModuleStoreTestCase):
         super(GradeTestBase, self).setUp()
         self.request = get_request_for_user(UserFactory())
         self.client.login(username=self.request.user.username, password="test")
-        self.subsection_grade_factory = SubsectionGradeFactory(self.request.user)
         self.course_structure = get_course_blocks(self.request.user, self.course.location)
+        self.subsection_grade_factory = SubsectionGradeFactory(self.request.user, self.course, self.course_structure)
         CourseEnrollment.enroll(self.request.user, self.course.id)
 
 
@@ -121,24 +121,16 @@ class SubsectionGradeFactoryTest(GradeTestBase):
                     'lms.djangoapps.grades.new.subsection_grade.SubsectionGradeFactory._get_saved_grade',
                     wraps=self.subsection_grade_factory._get_saved_grade  # pylint: disable=protected-access
                 ) as mock_get_saved_grade:
-                    with self.assertNumQueries(22):
-                        grade_a = self.subsection_grade_factory.create(
-                            self.sequence,
-                            self.course_structure,
-                            self.course
-                        )
+                    with self.assertNumQueries(19):
+                        grade_a = self.subsection_grade_factory.create(self.sequence)
                     self.assertTrue(mock_get_saved_grade.called)
                     self.assertTrue(mock_save_grades.called)
 
                     mock_get_saved_grade.reset_mock()
                     mock_save_grades.reset_mock()
 
-                    with self.assertNumQueries(4):
-                        grade_b = self.subsection_grade_factory.create(
-                            self.sequence,
-                            self.course_structure,
-                            self.course
-                        )
+                    with self.assertNumQueries(3):
+                        grade_b = self.subsection_grade_factory.create(self.sequence)
                     self.assertTrue(mock_get_saved_grade.called)
                     self.assertFalse(mock_save_grades.called)
 
@@ -156,7 +148,7 @@ class SubsectionGradeFactoryTest(GradeTestBase):
         # Grades are only saved if the feature flag and the advanced setting are
         # both set to True.
         with patch(
-            'lms.djangoapps.grades.models.PersistentSubsectionGrade.read_grade'
+            'lms.djangoapps.grades.models.PersistentSubsectionGrade.read_all_grades_for_course'
         ) as mock_read_saved_grade:
             with persistent_grades_feature_flags(
                 global_flag=feature_flag,
@@ -164,7 +156,7 @@ class SubsectionGradeFactoryTest(GradeTestBase):
                 course_id=self.course.id,
                 enabled_for_course=course_setting
             ):
-                self.subsection_grade_factory.create(self.sequence, self.course_structure, self.course)
+                self.subsection_grade_factory.create(self.sequence)
         self.assertEqual(mock_read_saved_grade.called, feature_flag and course_setting)
 
 
@@ -177,7 +169,7 @@ class SubsectionGradeTest(GradeTestBase):
         """
         Assuming the underlying score reporting methods work, test that the score is calculated properly.
         """
-        grade = self.subsection_grade_factory.create(self.sequence, self.course_structure, self.course)
+        grade = self.subsection_grade_factory.create(self.sequence)
         with mock_get_score(1, 2):
             # The final 2 parameters are only passed through to our mocked-out get_score method
             grade.compute(self.request.user, self.course_structure, None, None)
@@ -189,7 +181,6 @@ class SubsectionGradeTest(GradeTestBase):
         Test that grades are persisted to the database properly, and that loading saved grades returns the same data.
         """
         # Create a grade that *isn't* saved to the database
-        self.subsection_grade_factory._prefetch_scores(self.course_structure, self.course)  # pylint: disable=protected-access
         input_grade = SubsectionGrade(self.sequence)
         input_grade.compute(
             self.request.user,

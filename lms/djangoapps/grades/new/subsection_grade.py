@@ -154,76 +154,113 @@ class SubsectionGradeFactory(object):
     """
     Factory for Subsection Grades.
     """
-    def __init__(self, student):
+    def __init__(self, student, course, course_structure):
         self.student = student
+        self.course = course
+        self.course_structure = course_structure
 
-        self._scores_client = None
-        self._submissions_scores = None
-
-    def create(self, subsection, course_structure, course):
+    def create(self, subsection, block_structure=None):
         """
         Returns the SubsectionGrade object for the student and subsection.
+
+        Optionally takes in a block_structure
         """
-        self._prefetch_scores(course_structure, course)
+        block_structure = self._get_block_structure(block_structure)
         return (
-            self._get_saved_grade(subsection, course_structure, course) or
-            self._compute_and_save_grade(subsection, course_structure, course)
+            self._get_saved_grade(subsection, block_structure) or
+            self._compute_and_save_grade(subsection, block_structure)
         )
 
-    def update(self, usage_key, course_structure, course):
+    def update(self, usage_key, block_structure=None):
         """
         Updates the SubsectionGrade object for the student and subsection
         identified by the given usage key.
         """
         # save ourselves the extra queries if the course does not use subsection grades
-        if not PersistentGradesEnabledFlag.feature_enabled(course.id):
+        if not PersistentGradesEnabledFlag.feature_enabled(self.course.id):
             return
 
-        self._prefetch_scores(course_structure, course)
-        subsection = course_structure[usage_key]
-        return self._compute_and_save_grade(subsection, course_structure, course)
+        block_structure = self._get_block_structure(block_structure)
+        subsection = block_structure[usage_key]
+        return self._compute_and_save_grade(subsection, block_structure)
 
-    def _compute_and_save_grade(self, subsection, course_structure, course):
+    def _compute_and_save_grade(self, subsection, block_structure):
         """
         Freshly computes and updates the grade for the student and subsection.
         """
         subsection_grade = SubsectionGrade(subsection)
-        subsection_grade.compute(self.student, course_structure, self._scores_client, self._submissions_scores)
-        self._save_grade(subsection_grade, subsection, course)
+        subsection_grade.compute(self.student, block_structure, self._scores_client, self._submissions_scores)
+        self._save_grade(subsection_grade, subsection)
         return subsection_grade
 
-    def _get_saved_grade(self, subsection, course_structure, course):  # pylint: disable=unused-argument
+    def _get_saved_grade(self, subsection, block_structure):  # pylint: disable=unused-argument
         """
         Returns the saved grade for the student and subsection.
         """
-        if PersistentGradesEnabledFlag.feature_enabled(course.id):
-            try:
-                model = PersistentSubsectionGrade.read_grade(
-                    user_id=self.student.id,
-                    usage_key=subsection.location,
-                )
-                subsection_grade = SubsectionGrade(subsection)
-                subsection_grade.load_from_data(model, course_structure, self._scores_client, self._submissions_scores)
-                return subsection_grade
-            except PersistentSubsectionGrade.DoesNotExist:
-                return None
+        if not PersistentGradesEnabledFlag.feature_enabled(self.course.id):
+            return
 
-    def _save_grade(self, subsection_grade, subsection, course):  # pylint: disable=unused-argument
+        saved_subsection_grade =self._get_saved_subsection_grade(subsection.location)
+        if saved_subsection_grade:
+            subsection_grade = SubsectionGrade(subsection)
+            subsection_grade.load_from_data(
+                saved_subsection_grade, block_structure, self._scores_client, self._submissions_scores
+            )
+            return subsection_grade
+
+    def _save_grade(self, subsection_grade, subsection):
         """
         Updates the saved grade for the student and subsection.
         """
-        if PersistentGradesEnabledFlag.feature_enabled(course.id):
-            subsection_grade.save(self.student, subsection, course)
+        if not PersistentGradesEnabledFlag.feature_enabled(self.course.id):
+            return
+        subsection_grade.save(self.student, subsection, self.course)
 
-    def _prefetch_scores(self, course_structure, course):
+    @lazy
+    def _scores_client(self):
         """
-        Returns the prefetched scores for the given student and course.
+        Lazily queries and returns all the scores stored in the user
+        state (in CSM) for the course, while caching the result.
         """
-        if not self._scores_client:
-            scorable_locations = [block_key for block_key in course_structure if possibly_scored(block_key)]
-            self._scores_client = ScoresClient.create_for_locations(
-                course.id, self.student.id, scorable_locations
-            )
-            self._submissions_scores = submissions_api.get_scores(
-                unicode(course.id), anonymous_id_for_user(self.student, course.id)
-            )
+        scorable_locations = [block_key for block_key in self.course_structure if possibly_scored(block_key)]
+        return ScoresClient.create_for_locations(self.course.id, self.student.id, scorable_locations)
+
+    @lazy
+    def _submissions_scores(self):
+        """
+        Lazily queries and returns the scores stored by the
+        Submissions API for the course, while caching the result.
+        """
+        anonymous_user_id = anonymous_id_for_user(self.student, self.course.id)
+        return submissions_api.get_scores(unicode(self.course.id), anonymous_user_id)
+
+    @lazy
+    def _saved_subsection_grades(self):
+        """
+        Lazily queries and returns the persistent subsection
+        grades for the course, while caching the result.
+        """
+        return PersistentSubsectionGrade.read_all_grades_for_course(self.student.id, self.course.id)
+
+    def _get_saved_subsection_grade(self, subsection_usage_key):
+        """
+        Returns the saved subsection grade for the given
+        subsection usage key.
+        Returns None if not found.
+        """
+        for record in self._saved_subsection_grades:
+            if record.usage_key == subsection_usage_key:
+                return record
+
+    def _get_block_structure(self, block_structure):
+        """
+        If block_structure is None, returns self.course_structure.
+        Otherwise, returns block_structure after verifying that the
+        given block_structure is a sub-structure of self.course_structure.
+        """
+        if block_structure:
+            if block_structure.root_block_usage_key not in self.course_structure:
+                raise ValueError
+            return block_structure
+        else:
+            return self.course_structure

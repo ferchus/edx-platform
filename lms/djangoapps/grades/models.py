@@ -305,6 +305,20 @@ class PersistentSubsectionGrade(TimeStampedModel):
         )
 
     @classmethod
+    def read_all_grades_for_course(cls, user_id, course_key):
+        """
+        Reads all grades from database for the given course.
+
+        Arguments:
+            user_id: The user associated with the desired grades
+            course_key: The course identifier for the desired grades
+        """
+        return cls.objects.select_related('visible_blocks').filter(
+            user_id=user_id,
+            course_id=course_key,
+        )
+
+    @classmethod
     def update_grade(
             cls,
             user_id,
