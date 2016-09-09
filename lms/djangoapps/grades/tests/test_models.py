@@ -168,6 +168,7 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
             block_type='subsection',
             block_id='subsection_12345',
         )
+        self.block_records = BlockRecordSet([self.record_a, self.record_b])
         self.params = {
             "user_id": 12345,
             "usage_key": self.usage_key,
@@ -177,7 +178,7 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
             "possible_all": 12,
             "earned_graded": 6,
             "possible_graded": 8,
-            "visible_blocks": [self.record_a, self.record_b],
+            "visible_blocks": self.block_records,
         }
 
     def test_create(self):
@@ -185,13 +186,15 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         Tests model creation, and confirms error when trying to recreate model.
         """
         created_grade = PersistentSubsectionGrade.objects.create(**self.params)
-        read_grade = PersistentSubsectionGrade.read_grade(
-            user_id=self.params["user_id"],
-            usage_key=self.params["usage_key"],
-        )
-        self.assertEqual(created_grade, read_grade)
+        with self.assertNumQueries(1):
+            read_grade = PersistentSubsectionGrade.read_grade(
+                user_id=self.params["user_id"],
+                usage_key=self.params["usage_key"],
+            )
+            self.assertEqual(created_grade, read_grade)
+            self.assertEquals(read_grade.visible_blocks.blocks, self.block_records)
         with self.assertRaises(IntegrityError):
-            created_grade = PersistentSubsectionGrade.objects.create(**self.params)
+            PersistentSubsectionGrade.objects.create(**self.params)
 
     def test_create_bad_params(self):
         """

@@ -298,7 +298,7 @@ class PersistentSubsectionGrade(TimeStampedModel):
 
         Raises PersistentSubsectionGrade.DoesNotExist if applicable
         """
-        return cls.objects.get(
+        return cls.objects.select_related('visible_blocks').get(
             user_id=user_id,
             course_id=usage_key.course_key,  # course_id is included to take advantage of db indexes
             usage_key=usage_key,
