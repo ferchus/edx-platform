@@ -113,9 +113,11 @@ class CourseGrade(object):
 
         return grade_summary
 
-    def compute(self):
+    def compute_and_update(self, read_only=False):
         """
         Computes the grade for the given student and course.
+
+        If read_only is True, doesn't save any updates to the grades.
         """
         subsection_grade_factory = SubsectionGradeFactory(self.student, self.course, self.course_structure)
         for chapter_key in self.course_structure.get_children(self.course.location):
@@ -123,7 +125,7 @@ class CourseGrade(object):
             subsection_grades = []
             for subsection_key in self.course_structure.get_children(chapter_key):
                 subsection_grades.append(
-                    subsection_grade_factory.create(self.course_structure[subsection_key])
+                    subsection_grade_factory.create(self.course_structure[subsection_key], read_only=read_only)
                 )
 
             self.chapter_grades.append({
@@ -204,22 +206,26 @@ class CourseGradeFactory(object):
     def __init__(self, student):
         self.student = student
 
-    def create(self, course):
+    def create(self, course, read_only=False):
         """
         Returns the CourseGrade object for the given student and course.
+
+        If read_only is True, doesn't save any updates to the grades.
         """
         course_structure = get_course_blocks(self.student, course.location)
         return (
             self._get_saved_grade(course, course_structure) or
-            self._compute_and_update_grade(course, course_structure)
+            self._compute_and_update_grade(course, course_structure, read_only)
         )
 
-    def _compute_and_update_grade(self, course, course_structure):
+    def _compute_and_update_grade(self, course, course_structure, read_only):
         """
         Freshly computes and updates the grade for the student and course.
+
+        If read_only is True, doesn't save any updates to the grades.
         """
         course_grade = CourseGrade(self.student, course, course_structure)
-        course_grade.compute()
+        course_grade.compute_and_update(read_only)
         return course_grade
 
     def _get_saved_grade(self, course, course_structure):  # pylint: disable=unused-argument

@@ -159,16 +159,19 @@ class SubsectionGradeFactory(object):
         self.course = course
         self.course_structure = course_structure
 
-    def create(self, subsection, block_structure=None):
+    def create(self, subsection, block_structure=None, read_only=False):
         """
         Returns the SubsectionGrade object for the student and subsection.
 
-        Optionally takes in a block_structure
+        If block_structure is provided, uses it for finding and computing
+        the grade instead of the course_structure passed in earlier.
+
+        If read_only is True, doesn't save any updates to the grades.
         """
         block_structure = self._get_block_structure(block_structure)
         return (
             self._get_saved_grade(subsection, block_structure) or
-            self._compute_and_save_grade(subsection, block_structure)
+            self._compute_and_save_grade(subsection, block_structure, read_only)
         )
 
     def update(self, usage_key, block_structure=None):
@@ -184,13 +187,16 @@ class SubsectionGradeFactory(object):
         subsection = block_structure[usage_key]
         return self._compute_and_save_grade(subsection, block_structure)
 
-    def _compute_and_save_grade(self, subsection, block_structure):
+    def _compute_and_save_grade(self, subsection, block_structure, read_only=False):
         """
         Freshly computes and updates the grade for the student and subsection.
+
+        If read_only is True, doesn't save any updates to the grades.
         """
         subsection_grade = SubsectionGrade(subsection)
         subsection_grade.compute(self.student, block_structure, self._scores_client, self._submissions_scores)
-        self._save_grade(subsection_grade, subsection)
+        if not read_only:
+            self._save_grade(subsection_grade, subsection)
         return subsection_grade
 
     def _get_saved_grade(self, subsection, block_structure):  # pylint: disable=unused-argument
@@ -200,7 +206,7 @@ class SubsectionGradeFactory(object):
         if not PersistentGradesEnabledFlag.feature_enabled(self.course.id):
             return
 
-        saved_subsection_grade =self._get_saved_subsection_grade(subsection.location)
+        saved_subsection_grade = self._get_saved_subsection_grade(subsection.location)
         if saved_subsection_grade:
             subsection_grade = SubsectionGrade(subsection)
             subsection_grade.load_from_data(
