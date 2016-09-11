@@ -54,6 +54,7 @@ from enrollment.api import _default_course_mode
 import lms.lib.comment_client as cc
 from openedx.core.djangoapps.commerce.utils import ecommerce_api_client, ECOMMERCE_DATE_FORMAT
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+import request_cache
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from util.model_utils import emit_field_changed_events, get_changed_fields_dict
 from util.query import use_read_replica_if_available
@@ -1120,6 +1121,7 @@ class CourseEnrollment(models.Model):
 
         if activation_changed or mode_changed:
             self.save()
+            self._update_enrollment_in_request_cache(self.user, self.course_id, self.mode, self.is_active)
 
         if activation_changed:
             if self.is_active:
@@ -1387,14 +1389,19 @@ class CourseEnrollment(models.Model):
 
         `course_id` is our usual course_id string (e.g. "edX/Test101/2013_Fall)
         """
-        if not user.is_authenticated():
-            return False
-
-        try:
-            record = cls.objects.get(user=user, course_id=course_key)
-            return record.is_active
-        except cls.DoesNotExist:
-            return False
+        is_actively_enrolled = False
+        if user.is_authenticated():
+            cached_value = cls._get_enrollment_in_request_cache(user, course_key)
+            if cached_value:
+                is_actively_enrolled = cached_value[1] or False
+            else:
+                try:
+                    record = cls.objects.get(user=user, course_id=course_key)
+                    is_actively_enrolled = record.is_active
+                    cls._update_enrollment_in_request_cache(user, course_key, record.mode, record.is_active)
+                except cls.DoesNotExist:
+                    cls._update_enrollment_in_request_cache(user, course_key, None, None)
+        return is_actively_enrolled
 
     @classmethod
     def is_enrolled_by_partial(cls, user, course_id_partial):
@@ -1436,11 +1443,17 @@ class CourseEnrollment(models.Model):
             and is_active is whether the enrollment is active.
         Returns (None, None) if the courseenrollment record does not exist.
         """
-        try:
-            record = cls.objects.get(user=user, course_id=course_id)
-            return (record.mode, record.is_active)
-        except cls.DoesNotExist:
-            return (None, None)
+        cached_value = cls._get_enrollment_in_request_cache(user, course_id)
+        if cached_value:
+            mode, is_active = cached_value
+        else:
+            try:
+                record = cls.objects.get(user=user, course_id=course_id)
+                mode, is_active = (record.mode, record.is_active)
+            except cls.DoesNotExist:
+                mode, is_active = (None, None)
+            cls._update_enrollment_in_request_cache(user, course_id, mode, is_active)
+        return mode, is_active
 
     @classmethod
     def enrollments_for_user(cls, user):
@@ -1592,6 +1605,29 @@ class CourseEnrollment(models.Model):
             Unicode cache key
         """
         return cls.COURSE_ENROLLMENT_CACHE_KEY.format(user_id, unicode(course_key))
+
+    @classmethod
+    def _get_mode_active_request_cache(cls):
+        """
+        Returns the request-specific cache for CourseEnrollment
+        """
+        return request_cache.get_cache('CourseEnrollment.mode_and_active')
+
+    @classmethod
+    def _get_enrollment_in_request_cache(cls, user, course_key):
+        """
+        Returns the cached value for the user's enrollment (course_mode, is_active)
+        in the request cache.  If not cached, returns None.
+        """
+        return cls._get_mode_active_request_cache().get((user.id, course_key))
+
+    @classmethod
+    def _update_enrollment_in_request_cache(cls, user, course_key, course_mode, is_active):
+        """
+        Updates the cached value for the user's enrollment in the
+        request cache.
+        """
+        cls._get_mode_active_request_cache()[(user.id, course_key)] = (course_mode, is_active)
 
 
 @receiver(models.signals.post_save, sender=CourseEnrollment)
