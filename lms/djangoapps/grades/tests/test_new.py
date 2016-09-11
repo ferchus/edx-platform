@@ -110,25 +110,25 @@ class SubsectionGradeFactoryTest(GradeTestBase):
         Tests to ensure that a persistent subsection grade is created, saved, then fetched on re-request.
         """
         with patch(
-            'lms.djangoapps.grades.new.subsection_grade.SubsectionGradeFactory._save_grade',
-            wraps=self.subsection_grade_factory._save_grade  # pylint: disable=protected-access
-        ) as mock_save_grades:
+            'lms.djangoapps.grades.new.subsection_grade.PersistentSubsectionGrade.create_grade',
+            wraps=PersistentSubsectionGrade.create_grade
+        ) as mock_create_grade:
             with patch(
                 'lms.djangoapps.grades.new.subsection_grade.SubsectionGradeFactory._get_saved_grade',
                 wraps=self.subsection_grade_factory._get_saved_grade  # pylint: disable=protected-access
             ) as mock_get_saved_grade:
-                with self.assertNumQueries(19):
+                with self.assertNumQueries(12):
                     grade_a = self.subsection_grade_factory.create(self.sequence)
                 self.assertTrue(mock_get_saved_grade.called)
-                self.assertTrue(mock_save_grades.called)
+                self.assertTrue(mock_create_grade.called)
 
                 mock_get_saved_grade.reset_mock()
-                mock_save_grades.reset_mock()
+                mock_create_grade.reset_mock()
 
-                with self.assertNumQueries(3):
+                with self.assertNumQueries(1):
                     grade_b = self.subsection_grade_factory.create(self.sequence)
                 self.assertTrue(mock_get_saved_grade.called)
-                self.assertFalse(mock_save_grades.called)
+                self.assertFalse(mock_create_grade.called)
 
         self.assertEqual(grade_a.url_name, grade_b.url_name)
         self.assertEqual(grade_a.all_total, grade_b.all_total)
@@ -145,7 +145,7 @@ class SubsectionGradeFactoryTest(GradeTestBase):
         # Grades are only saved if the feature flag and the advanced setting are
         # both set to True.
         with patch(
-            'lms.djangoapps.grades.models.PersistentSubsectionGrade.read_all_grades_for_course'
+            'lms.djangoapps.grades.models.PersistentSubsectionGrade.read_grades_for_user_in_course'
         ) as mock_read_saved_grade:
             with persistent_grades_feature_flags(
                 global_flag=feature_flag,
@@ -188,7 +188,7 @@ class SubsectionGradeTest(GradeTestBase):
         self.assertEqual(PersistentSubsectionGrade.objects.count(), 0)
 
         # save to db, and verify object is in database
-        input_grade.save(self.request.user, self.sequence, self.course)
+        input_grade.create_model(self.request.user, self.sequence, self.course)
         self.assertEqual(PersistentSubsectionGrade.objects.count(), 1)
 
         # load from db, and ensure output matches input

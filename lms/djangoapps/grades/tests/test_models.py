@@ -6,7 +6,6 @@ from collections import OrderedDict
 import ddt
 from hashlib import sha1
 import json
-from mock import patch
 
 from django.db.utils import IntegrityError
 from django.test import TestCase
@@ -195,7 +194,7 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         """
         Tests model creation, and confirms error when trying to recreate model.
         """
-        created_grade = PersistentSubsectionGrade.objects.create(**self.params)
+        created_grade = PersistentSubsectionGrade.create_grade(**self.params)
         with self.assertNumQueries(1):
             read_grade = PersistentSubsectionGrade.read_grade(
                 user_id=self.params["user_id"],
@@ -204,7 +203,7 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
             self.assertEqual(created_grade, read_grade)
             self.assertEquals(read_grade.visible_blocks.blocks, self.block_records)
         with self.assertRaises(IntegrityError):
-            PersistentSubsectionGrade.objects.create(**self.params)
+            PersistentSubsectionGrade.create_grade(**self.params)
 
     def test_create_bad_params(self):
         """
@@ -212,39 +211,19 @@ class PersistentSubsectionGradeTest(GradesModelTestCase):
         """
         del self.params["earned_graded"]
         with self.assertRaises(IntegrityError):
-            PersistentSubsectionGrade.objects.create(**self.params)
+            PersistentSubsectionGrade.create_grade(**self.params)
 
     def test_course_version_is_optional(self):
         del self.params["course_version"]
-        PersistentSubsectionGrade.objects.create(**self.params)
-
-    def test_update_grade(self):
-        """
-        Tests model update, and confirms error when updating a nonexistent model.
-        """
-        with self.assertRaises(PersistentSubsectionGrade.DoesNotExist):
-            PersistentSubsectionGrade.update_grade(**self.params)
-        PersistentSubsectionGrade.objects.create(**self.params)
-        self.params['earned_all'] = 12
-        self.params['earned_graded'] = 8
-        PersistentSubsectionGrade.update_grade(**self.params)
-        read_grade = PersistentSubsectionGrade.read_grade(
-            user_id=self.params["user_id"],
-            usage_key=self.params["usage_key"],
-        )
-        self.assertEqual(read_grade.earned_all, 12)
-        self.assertEqual(read_grade.earned_graded, 8)
+        PersistentSubsectionGrade.create_grade(**self.params)
 
     @ddt.data(True, False)
-    def test_save(self, already_created):
+    def test_update_or_create_grade(self, already_created):
+        created_grade = PersistentSubsectionGrade.create_grade(**self.params) if already_created else None
+
+        self.params["earned_all"] = 7
+        updated_grade = PersistentSubsectionGrade.update_or_create_grade(**self.params)
+        self.assertEquals(updated_grade.earned_all, 7)
         if already_created:
-            PersistentSubsectionGrade.objects.create(**self.params)
-        module_prefix = "lms.djangoapps.grades.models.PersistentSubsectionGrade."
-        with patch(
-            module_prefix + "objects.get_or_create",
-            wraps=PersistentSubsectionGrade.objects.get_or_create
-        ) as mock_get_or_create:
-            with patch(module_prefix + "update") as mock_update:
-                PersistentSubsectionGrade.save_grade(**self.params)
-                self.assertTrue(mock_get_or_create.called)
-                self.assertEqual(mock_update.called, already_created)
+            self.assertEquals(created_grade.id, updated_grade.id)
+            self.assertEquals(created_grade.earned_all, 6)

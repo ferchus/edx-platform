@@ -134,24 +134,6 @@ class VisibleBlocksQuerySet(models.QuerySet):
         model, _ = self.get_or_create(hashed=blocks.to_hash(), defaults={'blocks_json': blocks.to_json()})
         return model
 
-    def hash_from_blockrecords(self, blocks):
-        """
-        Return the hash for a given list of blocks, saving the records if
-        possible, but returning the hash even if an IntegrityError occurs.
-
-        Argument 'blocks' should be a BlockRecordList.
-        """
-        try:
-            with transaction.atomic():
-                model = self.create_from_blockrecords(blocks)
-        except IntegrityError:
-            # If an integrity error occurs, the VisibleBlocks model we want to
-            # create already exists.  The hash is still the correct value.
-            return blocks.to_hash()
-        else:
-            # No error occurred
-            return model.hashed
-
 
 class VisibleBlocks(models.Model):
     """
@@ -182,38 +164,6 @@ class VisibleBlocks(models.Model):
         return BlockRecordList.from_json(self.blocks_json)
 
 
-class PersistentSubsectionGradeQuerySet(models.QuerySet):
-    """
-    A custom QuerySet, that handles creating a VisibleBlocks model on creation, and
-    extracts the course id from the provided usage_key.
-    """
-    def create(self, **kwargs):
-        """
-        Instantiates a new model instance after creating a VisibleBlocks instance.
-
-        Arguments:
-            user_id (int)
-            usage_key (serialized UsageKey)
-            course_version (str)
-            subtree_edited_timestamp (datetime)
-            earned_all (float)
-            possible_all (float)
-            earned_graded (float)
-            possible_graded (float)
-            visible_blocks (iterable of BlockRecord)
-        """
-        visible_blocks = kwargs.pop('visible_blocks')
-        kwargs['course_version'] = kwargs.get('course_version', None) or ""
-        if not kwargs.get('course_id', None):
-            kwargs['course_id'] = kwargs['usage_key'].course_key
-
-        visible_blocks_hash = VisibleBlocks.objects.hash_from_blockrecords(BlockRecordList.from_list(visible_blocks))
-        return super(PersistentSubsectionGradeQuerySet, self).create(
-            visible_blocks_id=visible_blocks_hash,
-            **kwargs
-        )
-
-
 class PersistentSubsectionGrade(TimeStampedModel):
     """
     A django model tracking persistent grades at the subsection level.
@@ -233,6 +183,10 @@ class PersistentSubsectionGrade(TimeStampedModel):
     # uniquely identify this particular grade object
     user_id = models.IntegerField(blank=False)
     course_id = CourseKeyField(blank=False, max_length=255)
+
+    # note: the usage_key may not have the run filled in for
+    # old mongo courses.  Use the full_usage_key property
+    # instead when you want to use/compare the usage_key.
     usage_key = UsageKeyField(blank=False, max_length=255)
 
     # Information relating to the state of content when grade was calculated
@@ -249,8 +203,18 @@ class PersistentSubsectionGrade(TimeStampedModel):
     # track which blocks were visible at the time of grade calculation
     visible_blocks = models.ForeignKey(VisibleBlocks, db_column='visible_blocks_hash', to_field='hashed')
 
-    # use custom manager
-    objects = PersistentSubsectionGradeQuerySet.as_manager()
+    # # use custom manager
+    # objects = PersistentSubsectionGradeQuerySet.as_manager()
+
+    @property
+    def full_usage_key(self):
+        """
+        Returns the "correct" usage key value with the run filled in.
+        """
+        if self.usage_key.run is None:  # pylint: disable=no-member
+            return self.usage_key.replace(course_key=self.course_id)
+        else:
+            return self.usage_key
 
     def __unicode__(self):
         """
@@ -267,28 +231,6 @@ class PersistentSubsectionGrade(TimeStampedModel):
             self.earned_all,
             self.possible_all,
         )
-
-    @classmethod
-    def save_grade(cls, **kwargs):
-        """
-        Wrapper for create_grade or update_grade, depending on which applies.
-        Takes the same arguments as both of those methods.
-        """
-        user_id = kwargs.pop('user_id')
-        usage_key = kwargs.pop('usage_key')
-        try:
-            with transaction.atomic():
-                grade, is_created = cls.objects.get_or_create(
-                    user_id=user_id,
-                    course_id=usage_key.course_key,
-                    usage_key=usage_key,
-                    defaults=kwargs,
-                )
-        except IntegrityError:
-            cls.update_grade(user_id=user_id, usage_key=usage_key, **kwargs)
-        else:
-            if not is_created:
-                grade.update(**kwargs)
 
     @classmethod
     def read_grade(cls, user_id, usage_key):
@@ -308,7 +250,7 @@ class PersistentSubsectionGrade(TimeStampedModel):
         )
 
     @classmethod
-    def read_all_grades_for_course(cls, user_id, course_key):
+    def read_grades_for_user_in_course(cls, user_id, course_key):
         """
         Reads all grades from database for the given course.
 
@@ -322,66 +264,40 @@ class PersistentSubsectionGrade(TimeStampedModel):
         )
 
     @classmethod
-    def update_grade(
-            cls,
-            user_id,
-            usage_key,
-            course_version,
-            subtree_edited_timestamp,
-            earned_all,
-            possible_all,
-            earned_graded,
-            possible_graded,
-            visible_blocks,
-    ):
+    def _prepare_grade_params(cls, params):
         """
-        Updates a previously existing grade.
-
-        This is distinct from update() in that `grade.update()` operates on an
-        existing grade object, while this is a classmethod that pulls the grade
-        from the database, and then updates it.  If you already have a grade
-        object, use the update() method on that object to avoid an extra
-        round-trip to the database.  Use this classmethod if all you have are a
-        user and the usage key of an existing grade.
-
-        Requires all the arguments listed in docstring for create_grade
+        Prepares the fields for the grade record.
         """
-        grade = cls.read_grade(
+        params['visible_blocks'] = VisibleBlocks.objects.create_from_blockrecords(
+            BlockRecordList.from_list(params['visible_blocks'])
+        )
+        params['course_version'] = params.get('course_version', None) or ""
+        if not params.get('course_id', None):
+            params['course_id'] = params['usage_key'].course_key
+
+    @classmethod
+    def update_or_create_grade(cls, **kwargs):
+        """
+        Wrapper for create_grade or update_grade, depending on which applies.
+        Takes the same arguments as both of those methods.
+        """
+        cls._prepare_grade_params(kwargs)
+
+        user_id = kwargs.pop('user_id')
+        usage_key = kwargs.pop('usage_key')
+
+        grade, _ = cls.objects.update_or_create(
             user_id=user_id,
+            course_id=usage_key.course_key,
             usage_key=usage_key,
+            defaults=kwargs,
         )
+        return grade
 
-        grade.update(
-            course_version=course_version,
-            subtree_edited_timestamp=subtree_edited_timestamp,
-            earned_all=earned_all,
-            possible_all=possible_all,
-            earned_graded=earned_graded,
-            possible_graded=possible_graded,
-            visible_blocks=visible_blocks,
-        )
-
-    def update(
-            self,
-            course_version,
-            subtree_edited_timestamp,
-            earned_all,
-            possible_all,
-            earned_graded,
-            possible_graded,
-            visible_blocks,
-    ):
+    @classmethod
+    def create_grade(cls, **kwargs):
         """
-        Modify an existing PersistentSubsectionGrade object, saving the new
-        version.
+        Wrapper for objects.create.
         """
-        visible_blocks_hash = VisibleBlocks.objects.hash_from_blockrecords(BlockRecordList.from_list(visible_blocks))
-
-        self.course_version = course_version or ""
-        self.subtree_edited_timestamp = subtree_edited_timestamp
-        self.earned_all = earned_all
-        self.possible_all = possible_all
-        self.earned_graded = earned_graded
-        self.possible_graded = possible_graded
-        self.visible_blocks_id = visible_blocks_hash  # pylint: disable=attribute-defined-outside-init
-        self.save()
+        cls._prepare_grade_params(kwargs)
+        return cls.objects.create(**kwargs)
