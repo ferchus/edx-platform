@@ -456,7 +456,7 @@ class @Problem
       saveMessage = response.msg
       if response.success
         @el.trigger('contentChanged', [@id, response.html])
-        @render(response.html, @focus_on_save_notification)
+        @render('response.html', @focus_on_save_notification)
         @updateProgress response
       else
         @gentle_alert saveMessage
@@ -520,7 +520,6 @@ class @Problem
 
     at_least_one_text_input_found = false
     one_text_input_filled = false
-    debugger
     @el.find("input:text").each (i, text_field) =>
       if $(text_field).is(':visible')
         at_least_one_text_input_found = true
