@@ -120,19 +120,24 @@ class CourseGrade(object):
         If read_only is True, doesn't save any updates to the grades.
         """
         subsection_grade_factory = SubsectionGradeFactory(self.student, self.course, self.course_structure)
+        all_subsection_grades = []
         for chapter_key in self.course_structure.get_children(self.course.location):
             chapter = self.course_structure[chapter_key]
-            subsection_grades = []
+            chapter_subsection_grades = []
             for subsection_key in self.course_structure.get_children(chapter_key):
-                subsection_grades.append(
-                    subsection_grade_factory.create(self.course_structure[subsection_key], read_only=read_only)
+                chapter_subsection_grades.append(
+                    subsection_grade_factory.create(self.course_structure[subsection_key], read_only=True)
                 )
 
             self.chapter_grades.append({
                 'display_name': block_metadata_utils.display_name_with_default_escaped(chapter),
                 'url_name': block_metadata_utils.url_name_for_block(chapter),
-                'sections': subsection_grades
+                'sections': chapter_subsection_grades
             })
+            all_subsection_grades.extend(chapter_subsection_grades)
+
+        if not read_only:
+            subsection_grade_factory.bulk_create(all_subsection_grades)
 
         self._signal_listeners_when_grade_computed()
 

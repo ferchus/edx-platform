@@ -18,7 +18,7 @@ class SubsectionGrade(object):
     """
     Class for Subsection Grades.
     """
-    def __init__(self, subsection):
+    def __init__(self, subsection, course):
         self.location = subsection.location
         self.display_name = block_metadata_utils.display_name_with_default_escaped(subsection)
         self.url_name = block_metadata_utils.url_name_for_block(subsection)
@@ -26,6 +26,9 @@ class SubsectionGrade(object):
         self.format = getattr(subsection, 'format', '')
         self.due = getattr(subsection, 'due', None)
         self.graded = getattr(subsection, 'graded', False)
+
+        self.course_version = getattr(course, 'course_version', None)
+        self.subtree_edited_timestamp = subsection.subtree_edited_on
 
         self.graded_total = None  # aggregated grade for all graded problems
         self.all_total = None  # aggregated grade for all problems, regardless of whether they are graded
@@ -64,15 +67,16 @@ class SubsectionGrade(object):
             for location, (score, weight) in self.locations_to_weighted_scores.iteritems()
         ]
 
-    def _model_operation(self, student, subsection, course, model_method):
+    def _persisted_model_params(self, student):
         """
-        Calls the given model method with the expected arguments.
+        Returns the parameters for creating/updating the
+        persisted model for this subsection grade.
         """
-        return model_method(
+        return dict(
             user_id=student.id,
             usage_key=self.location,
-            course_version=getattr(course, 'course_version', None),
-            subtree_edited_timestamp=subsection.subtree_edited_on,
+            course_version=self.course_version,
+            subtree_edited_timestamp=self.subtree_edited_timestamp,
             earned_all=self.all_total.earned,
             possible_all=self.all_total.possible,
             earned_graded=self.graded_total.earned,
@@ -80,17 +84,27 @@ class SubsectionGrade(object):
             visible_blocks=self._get_visible_blocks,
         )
 
-    def create_model(self, student, subsection, course):
+    @classmethod
+    def bulk_create_models(cls, student, subsection_grades):
         """
         Saves the subsection grade in a persisted model.
         """
-        return self._model_operation(student, subsection, course, PersistentSubsectionGrade.create_grade)
+        return PersistentSubsectionGrade.bulk_create_grades([
+            subsection_grade._persisted_model_params(student)
+            for subsection_grade in subsection_grades
+        ])
 
-    def update_or_create_model(self, student, subsection, course):
+    def create_model(self, student):
+        """
+        Saves the subsection grade in a persisted model.
+        """
+        return PersistentSubsectionGrade.create_grade(**self._persisted_model_params(student))
+
+    def update_or_create_model(self, student):
         """
         Saves or updates the subsection grade in a persisted model.
         """
-        return self._model_operation(student, subsection, course, PersistentSubsectionGrade.update_or_create_grade)
+        return PersistentSubsectionGrade.update_or_create_grade(**self._persisted_model_params(student))
 
     def load_from_data(self, model, course_structure, scores_client, submissions_scores):
         """
@@ -191,12 +205,18 @@ class SubsectionGradeFactory(object):
 
         subsection_grade = self._get_saved_grade(subsection, block_structure)
         if not subsection_grade:
-            subsection_grade = SubsectionGrade(subsection)
+            subsection_grade = SubsectionGrade(subsection, self.course)
             subsection_grade.compute(self.student, block_structure, self._scores_client, self._submissions_scores)
             if not read_only and PersistentGradesEnabledFlag.feature_enabled(self.course.id):
-                grade_model = subsection_grade.create_model(self.student, subsection, self.course)
+                grade_model = subsection_grade.create_model(self.student)
                 self._update_saved_subsection_grade(subsection.location, grade_model)
         return subsection_grade
+
+    def bulk_create(self, subsection_grades):
+        """
+        Bulks creates all the models for the given subsection_grades.
+        """
+        SubsectionGrade.bulk_create_models(self.student, subsection_grades)
 
     def update(self, subsection, block_structure=None):
         """
@@ -209,10 +229,10 @@ class SubsectionGradeFactory(object):
             return
 
         block_structure = self._get_block_structure(block_structure)
-        subsection_grade = SubsectionGrade(subsection)
+        subsection_grade = SubsectionGrade(subsection, self.course)
         subsection_grade.compute(self.student, block_structure, self._scores_client, self._submissions_scores)
 
-        grade_model = subsection_grade.update_or_create_model(self.student, subsection, self.course)
+        grade_model = subsection_grade.update_or_create_model(self.student)
         self._update_saved_subsection_grade(subsection.location, grade_model)
         return subsection_grade
 
@@ -243,7 +263,7 @@ class SubsectionGradeFactory(object):
 
         saved_subsection_grade = self._get_saved_subsection_grade(subsection.location)
         if saved_subsection_grade:
-            subsection_grade = SubsectionGrade(subsection)
+            subsection_grade = SubsectionGrade(subsection, self.course)
             subsection_grade.load_from_data(
                 saved_subsection_grade, block_structure, self._scores_client, self._submissions_scores
             )

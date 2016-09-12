@@ -301,3 +301,16 @@ class PersistentSubsectionGrade(TimeStampedModel):
         """
         cls._prepare_grade_params(kwargs)
         return cls.objects.create(**kwargs)
+
+    @classmethod
+    def bulk_create_grades(cls, list_of_params):
+        """
+        Bulk creation of grades.
+        """
+        if list_of_params:
+            for params in list_of_params:
+                cls._prepare_grade_params(params)
+            return cls.objects.bulk_create([
+                PersistentSubsectionGrade(**params)
+                for params in list_of_params
+            ])
