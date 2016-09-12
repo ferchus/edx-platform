@@ -455,6 +455,7 @@ class @Problem
     $.postWithPrefix "#{@url}/problem_save", @answers, (response) =>
       saveMessage = response.msg
       if response.success
+        window.SR.readElts @el.find('.notification-message')
         @el.trigger('contentChanged', [@id, response.html])
         @render('response.html', @focus_on_save_notification)
         @updateProgress response
